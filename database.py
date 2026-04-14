@@ -24,7 +24,7 @@ def guardar_analisis(titulo, instrucciones, formato, estilo, resultado, archivos
         "instrucciones": instrucciones,
         "formato_salida": formato,
         "estilo_citas": estilo,
-        "resultado": resultado[:10000],  # Limitar tamaño
+        "resultado": resultado[:10000],
         "archivos": ", ".join(archivos),
         "fecha": datetime.now().isoformat()
     }
