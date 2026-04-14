@@ -1,10 +1,12 @@
 import streamlit as st
 from datetime import datetime
 import os
+import re
+import json
+import time
 from openai import OpenAI
 from dotenv import load_dotenv
 from database import guardar_analisis, obtener_analisis
-import json
 
 load_dotenv()
 
@@ -19,606 +21,440 @@ deepseek_client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url="https://api.deepsee
 groq_client = OpenAI(api_key=GROQ_API_KEY, base_url="https://api.groq.com/openai/v1") if GROQ_API_KEY else None
 
 # ============================================
-# FUNCIONES DE LLAMADAS A API
+# FUNCIONES DE LLAMADAS A API CON REINTENTOS
 # ============================================
 
-def llamar_deepseek(prompt):
+def llamar_deepseek(prompt, max_intentos=3):
     if not deepseek_client:
-        return "⚠️ DeepSeek no configurado. Agrega DEEPSEEK_API_KEY en .env"
-    try:
-        response = deepseek_client.chat.completions.create(
-            model="deepseek-chat",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.7
-        )
-        return response.choices[0].message.content
-    except Exception as e:
-        return f"❌ Error DeepSeek: {str(e)}"
+        return "⚠️ DeepSeek no configurado"
+    for intento in range(max_intentos):
+        try:
+            response = deepseek_client.chat.completions.create(
+                model="deepseek-chat",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.2,
+                max_tokens=8000
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            if intento == max_intentos - 1:
+                return f"❌ Error DeepSeek: {str(e)}"
+            time.sleep(2)
+    return "❌ Error en llamada a DeepSeek"
 
-def llamar_groq(prompt):
+def llamar_groq(prompt, max_intentos=3):
     if not groq_client:
-        return "⚠️ Groq no configurado. Agrega GROQ_API_KEY en .env"
-    try:
-        response = groq_client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.5
-        )
-        return response.choices[0].message.content
-    except Exception as e:
-        return f"❌ Error Groq: {str(e)}"
+        return "⚠️ Groq no configurado"
+    for intento in range(max_intentos):
+        try:
+            response = groq_client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.2,
+                max_tokens=8000
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            if intento == max_intentos - 1:
+                return f"❌ Error Groq: {str(e)}"
+            time.sleep(2)
+    return "❌ Error en llamada a Groq"
 
 # ============================================
-# AGENTE 1: EXTRACCIÓN DE REQUISITOS (DeepSeek)
+# AGENTE 1: EXTRACCIÓN DE REQUISITOS (CRÍTICO)
 # ============================================
 
-def extraer_requisitos_postdoctorado(texto_completo):
-    """Extrae requisitos a nivel postdoctoral"""
+def extraer_requisitos_critico(texto):
+    """Extrae CADA requisito con especificaciones técnicas detalladas"""
     prompt = f"""
-    Eres un ANALISTA POSTDOCTORAL especializado en extracción de requisitos.
+    Eres un AUDITOR POSTDOCTORAL. Extrae CADA requisito de esta convocatoria.
     
-    === DOCUMENTO COMPLETO ===
-    {texto_completo[:10000]}
+    === CONVOCATORIA ===
+    {texto[:12000]}
     
-    Extrae TODOS los requisitos del documento. Analiza línea por línea, párrafo por párrafo.
-    
-    Responde EXACTAMENTE con este formato JSON:
+    Responde EXACTAMENTE en este formato JSON. Sé EXTREMADAMENTE DETALLADO:
     
     {{
-        "requisitos_generales": [
-            {{"id": 1, "descripcion": "requisito general 1", "prioridad": "alta/media/baja"}},
-            {{"id": 2, "descripcion": "requisito general 2", "prioridad": "alta/media/baja"}}
+        "requisitos": [
+            {{
+                "id": 1,
+                "seccion": "sección exacta",
+                "texto_original": "texto completo del requisito",
+                "especificacion_tecnica": "detalle técnico específico",
+                "plazo": "fecha o 'No especificado'",
+                "prioridad": "alta/media/baja",
+                "categoria": "administrativo/tecnico/economico/metodologico/etica",
+                "es_obligatorio": true,
+                "criterio_verificacion": "cómo saber si se cumple"
+            }}
         ],
-        "requisitos_tecnicos": [
-            {{"id": 1, "descripcion": "requisito técnico 1", "especificacion": "detalle técnico"}}
+        "perfiles_requeridos": [
+            {{
+                "perfil": "nombre",
+                "nivel": "doctorado/maestria/ingenieria",
+                "experiencia": "años y área específica",
+                "habilidades": ["habilidad1", "habilidad2"],
+                "dedicacion": "completa/parcial",
+                "es_obligatorio": true
+            }}
         ],
-        "requisitos_administrativos": [
-            {{"id": 1, "descripcion": "requisito administrativo 1", "plazo": "fecha o plazo"}}
+        "fechas_clave": [
+            {{"evento": "apertura/cierre/evaluacion", "fecha": "fecha exacta", "formato": "DD/MM/AAAA"}}
         ],
-        "perfiles_necesarios": [
-            {{"perfil": "nombre del perfil", "experiencia": "años y área", "habilidades": ["lista"]}}
+        "presupuesto_maximo": "monto exacto o 'No especificado'",
+        "criterios_evaluacion": [
+            {{"criterio": "nombre", "ponderacion": "porcentaje", "descripcion": "detalle"}}
         ],
-        "fechas_clave": ["fecha1", "fecha2"],
-        "presupuesto_referencia": "monto si existe",
-        "evaluacion_criterios": ["criterio1", "criterio2"]
+        "documentos_requeridos": [
+            {{"documento": "nombre", "formato": "PDF/Word", "max_paginas": "número o 'N/A'"}}
+        ]
     }}
     
-    Si un campo no tiene información, devuelve una lista vacía [].
-    """
-    
-    respuesta = llamar_deepseek(prompt)
-    try:
-        # Intentar parsear JSON
-        return json.loads(respuesta)
-    except:
-        # Si falla, devolver estructura básica con el texto
-        return {
-            "requisitos_generales": [{"id": 1, "descripcion": respuesta[:500], "prioridad": "alta"}],
-            "requisitos_tecnicos": [],
-            "requisitos_administrativos": [],
-            "perfiles_necesarios": [],
-            "fechas_clave": [],
-            "presupuesto_referencia": "No especificado",
-            "evaluacion_criterios": []
-        }
-
-# ============================================
-# AGENTE 2: BÚSQUEDA EN INTERNET (Groq)
-# ============================================
-
-def buscar_informacion_postdoctoral(tema, requisitos):
-    """Busca información en fuentes oficiales"""
-    prompt = f"""
-    Eres un INVESTIGADOR POSTDOCTORAL. Busca información actualizada y de fuentes oficiales sobre:
-    
-    === TEMA PRINCIPAL ===
-    {tema}
-    
-    === REQUISITOS DEL PROYECTO ===
-    {json.dumps(requisitos, indent=2)[:3000]}
-    
-    Proporciona:
-    1. FUENTES OFICIALES (gobierno, universidades, organismos internacionales) con URLs
-    2. ARTÍCULOS ACADÉMICOS RELEVANTES (autores, año, título, resumen)
-    3. DATOS ESTADÍSTICOS ACTUALIZADOS
-    4. REFERENCIAS BIBLIOGRÁFICAS COMPLETAS (formato APA)
-    5. TENDENCIAS Y AVANCES RECIENTES
-    
-    Organiza la información de manera estructurada y profesional.
-    """
-    return llamar_groq(prompt)
-
-# ============================================
-# AGENTE 3: ANÁLISIS CRÍTICO (DeepSeek)
-# ============================================
-
-def analisis_critico_postdoctoral(texto, requisitos):
-    """Realiza análisis crítico a nivel postdoctoral"""
-    prompt = f"""
-    Eres un EVALUADOR POSTDOCTORAL. Realiza un análisis crítico del siguiente contenido.
-    
-    === CONTENIDO A ANALIZAR ===
-    {texto[:6000]}
-    
-    === REQUISITOS IDENTIFICADOS ===
-    {json.dumps(requisitos, indent=2)[:2000]}
-    
-    Tu análisis debe incluir:
-    
-    1. EVALUACIÓN CIENTÍFICA:
-       - Rigor metodológico (puntuación 1-10)
-       - Validez de las afirmaciones
-       - Uso adecuado de referencias
-       - Profundidad del análisis
-    
-    2. BRECHAS Y DEBILIDADES:
-       - Qué falta en el contenido
-       - Inconsistencias encontradas
-       - Áreas que requieren mejora
-    
-    3. FORTALEZAS:
-       - Aspectos destacables
-       - Buenas prácticas identificadas
-    
-    4. RECOMENDACIONES ESPECÍFICAS:
-       - Cómo mejorar cada brecha identificada
-       - Acciones concretas a tomar
-    
-    5. CALIFICACIÓN GENERAL (0-100%)
+    Si un campo no existe, pon "No especificado" o [].
     """
     return llamar_deepseek(prompt)
 
 # ============================================
-# AGENTE 4: GENERACIÓN DE PROPUESTA (Groq)
+# AGENTE 2: VERIFICACIÓN DE CUMPLIMIENTO (100% OBLIGATORIO)
 # ============================================
 
-def generar_propuesta_postdoctoral(requisitos, analisis, busqueda, instrucciones, formato):
-    """Genera propuesta completa a nivel postdoctoral"""
+def verificar_cumplimiento_estricto(propuesta, requisitos):
+    """Verifica que la propuesta cumpla el 100% de los requisitos. Si no, la rechaza."""
+    
     prompt = f"""
-    Eres un GENERADOR DE PROPUESTAS POSTDOCTORALES. Crea una propuesta profesional COMPLETA.
+    Eres un AUDITOR POSTDOCTORAL ESTRICTO. Verifica si la propuesta cumple CADA requisito.
     
-    === REQUISITOS DEL PROYECTO ===
-    {json.dumps(requisitos, indent=2)[:3000]}
+    === PROPUESTA ===
+    {propuesta[:8000]}
     
-    === ANÁLISIS CRÍTICO ===
-    {analisis[:2000]}
+    === REQUISITOS DE LA CONVOCATORIA ===
+    {requisitos[:5000]}
     
-    === INFORMACIÓN DE FUENTES EXTERNAS ===
-    {busqueda[:2000]}
+    Tu verificación debe ser EXTREMADAMENTE RIGUROSA.
     
-    === INSTRUCCIONES ESPECÍFICAS ===
-    {instrucciones}
+    Responde EXACTAMENTE con este formato:
     
-    === FORMATO SOLICITADO ===
-    {formato}
+    ## RESULTADO DE VERIFICACIÓN
     
-    La propuesta debe contener EXACTAMENTE estas secciones:
+    ### REQUISITOS CUMPLIDOS:
+    | # | Requisito | Sección donde se cumple | Evidencia |
+    |---|-----------|------------------------|-----------|
     
-    # PROPUESTA TÉCNICA Y ECONÓMICA
+    ### REQUISITOS NO CUMPLIDOS:
+    | # | Requisito | Qué falta | Corrección necesaria | Prioridad |
+    |---|-----------|-----------|---------------------|-----------|
     
-    ## 1. PORTADA
-    - Título del proyecto
-    - Institución/Organización
-    - Fecha de presentación
-    - Autores/Investigadores principales
+    ### CALIFICACIÓN POR SECCIÓN:
+    - Portada: X/100
+    - Resumen: X/100
+    - Introducción: X/100
+    - Objetivos: X/100
+    - Metodología: X/100
+    - Cronograma: X/100
+    - Presupuesto: X/100
+    - Equipo: X/100
+    - Resultados: X/100
+    - Referencias: X/100
     
-    ## 2. RESUMEN EJECUTIVO (máximo 500 palabras)
-    - Problema a resolver
-    - Objetivo principal
-    - Metodología resumida
-    - Resultados esperados
-    - Presupuesto total
+    ### CALIFICACIÓN TOTAL: X/100
     
-    ## 3. INTRODUCCIÓN Y JUSTIFICACIÓN
-    - Contexto del problema
-    - Estado del arte (con citas)
-    - Justificación científica y social
-    - Marco teórico-conceptual
+    ### APROBACIÓN: 
+    - SI el TOTAL es 100/100 → "APROBADO"
+    - SI el TOTAL es menor a 100/100 → "RECHAZADO - REQUIERE CORRECCIONES"
     
-    ## 4. OBJETIVOS
-    - Objetivo general
-    - Objetivos específicos (mínimo 5)
-    - Indicadores de logro
+    ### LISTA DE CORRECCIONES OBLIGATORIAS:
+    1. [Corrección 1 - específica]
+    2. [Corrección 2 - específica]
+    ...
     
-    ## 5. METODOLOGÍA
-    - Enfoque y tipo de investigación
-    - Población y muestra
-    - Técnicas e instrumentos de recolección
-    - Procedimiento detallado (fases)
-    - Plan de análisis de datos
-    - Consideraciones éticas
-    
-    ## 6. CRONOGRAMA DE ACTIVIDADES
-    | Actividad | Mes 1 | Mes 2 | Mes 3 | Mes 4 | Mes 5 | Mes 6 |
-    |-----------|-------|-------|-------|-------|-------|-------|
-    | Actividad 1 | X | X | | | | |
-    
-    ## 7. PRESUPUESTO DETALLADO
-    | Rubro | Cantidad | Unitario | Total |
-    |-------|----------|----------|-------|
-    | Personal | | | |
-    | Equipos | | | |
-    | Materiales | | | |
-    | Viajes | | | |
-    | Gastos generales | | | |
-    | **TOTAL** | | | |
-    
-    ## 8. EQUIPO DE TRABAJO
-    | Rol | Perfil | Dedicación | Responsabilidades |
-    |-----|--------|------------|-------------------|
-    
-    ## 9. RESULTADOS ESPERADOS E IMPACTO
-    - Resultados científicos
-    - Resultados tecnológicos
-    - Impacto social/económico
-    - Transferencia de conocimientos
-    
-    ## 10. REFERENCIAS BIBLIOGRÁFICAS (formato APA)
-    
-    ## 11. ANEXOS (si aplica)
-    
-    El documento debe ser profesional, riguroso y estar listo para ser presentado a una convocatoria postdoctoral.
+    ### PRÓXIMOS PASOS:
+    - [Instrucciones claras para corregir cada punto faltante]
     """
-    return llamar_groq(prompt)
-
-# ============================================
-# AGENTE 5: VERIFICACIÓN DE CUMPLIMIENTO (DeepSeek)
-# ============================================
-
-def verificar_cumplimiento_postdoctoral(propuesta, requisitos):
-    """Verifica punto por punto el cumplimiento de requisitos"""
-    prompt = f"""
-    Eres un AUDITOR POSTDOCTORAL. Verifica si la propuesta cumple con TODOS los requisitos.
     
-    === PROPUESTA GENERADA ===
-    {propuesta[:6000]}
-    
-    === REQUISITOS ORIGINALES ===
-    {json.dumps(requisitos, indent=2)[:3000]}
-    
-    Responde con:
-    
-    ## TABLA DE VERIFICACIÓN
-    
-    | # | Requisito | Cumple | Observación |
-    |---|-----------|--------|-------------|
-    | 1 | ... | ✅/❌ | ... |
-    
-    ## REQUISITOS NO CUMPLIDOS
-    Lista detallada de lo que falta
-    
-    ## CALIFICACIÓN GENERAL
-    X/100 (XX%)
-    
-    ## RECOMENDACIONES FINALES
-    Acciones concretas para cumplir los requisitos faltantes
-    """
     return llamar_deepseek(prompt)
 
 # ============================================
-# AGENTE 6: MEJORAS ITERATIVAS (Groq)
+# AGENTE 3: CORRECTOR OBLIGATORIO
 # ============================================
 
-def sugerir_mejoras_postdoctorales(propuesta, verificacion, comentarios_usuario):
-    """Sugiere mejoras basadas en la verificación y comentarios"""
+def corregir_propuesta(propuesta_actual, lista_correcciones, nuevos_documentos=""):
+    """Corrige la propuesta basada en las correcciones obligatorias"""
+    
     prompt = f"""
-    Eres un ASESOR POSTDOCTORAL. Sugiere mejoras específicas para la propuesta.
+    Eres un CORRECTOR POSTDOCTORAL. Debes corregir la propuesta para que cumpla TODOS los requisitos.
     
     === PROPUESTA ACTUAL ===
-    {propuesta[:4000]}
+    {propuesta_actual[:5000]}
     
-    === VERIFICACIÓN ===
-    {verificacion[:2000]}
+    === CORRECCIONES OBLIGATORIAS ===
+    {lista_correcciones}
     
-    === COMENTARIOS DEL USUARIO ===
-    {comentarios_usuario}
+    === INFORMACIÓN ADICIONAL ===
+    {nuevos_documentos[:2000]}
     
-    Responde con:
+    Genera una VERSIÓN CORREGIDA que:
+    1. Implementa CADA UNA de las correcciones obligatorias
+    2. NO omite ningún requisito
+    3. Mantiene el formato profesional
+    4. Incluye TODAS las secciones requeridas
     
-    1. CAMBIOS PRIORITARIOS (urgentes)
-    2. MEJORAS RECOMENDADAS (importantes)
-    3. OPTIMIZACIONES (deseables)
-    4. TEXTO SUGERIDO para secciones débiles
-    5. ELEMENTOS A AGREGAR
+    Responde SOLO con la propuesta corregida completa, sin comentarios adicionales.
+    """
+    
+    return llamar_groq(prompt)
+
+# ============================================
+# AGENTE 4: GENERADOR DE PROPUESTA INICIAL
+# ============================================
+
+def generar_propuesta_inicial(requisitos, instrucciones, documentos_previos=""):
+    """Genera la primera versión de la propuesta"""
+    
+    prompt = f"""
+    Eres un GENERADOR DE PROPUESTAS POSTDOCTORALES.
+    
+    === REQUISITOS DE LA CONVOCATORIA ===
+    {requisitos[:6000]}
+    
+    === INSTRUCCIONES ===
+    {instrucciones}
+    
+    === DOCUMENTOS PREVIOS ===
+    {documentos_previos[:2000]}
+    
+    Genera una PROPUESTA POSTDOCTORAL COMPLETA con:
+    1. Portada
+    2. Resumen ejecutivo
+    3. Introducción y estado del arte
+    4. Objetivos (general y específicos)
+    5. Metodología detallada
+    6. Cronograma (tabla 36 meses)
+    7. Presupuesto detallado (tabla)
+    8. Equipo de trabajo (tabla)
+    9. Resultados esperados
+    10. Referencias bibliográficas (formato APA)
+    
+    La propuesta debe ser PROFESIONAL y DETALLADA.
+    """
+    
+    return llamar_groq(prompt)
+
+# ============================================
+# AGENTE 5: BÚSQUEDA DE REFERENCIAS
+# ============================================
+
+def buscar_referencias_academicas(tema):
+    """Busca referencias académicas reales"""
+    prompt = f"""
+    Busca REFERENCIAS ACADÉMICAS REALES sobre: {tema}
+    
+    Proporciona 10 referencias en formato APA de los ÚLTIMOS 5 AÑOS.
+    Incluye: autores, año, título, revista, DOI o URL.
     """
     return llamar_groq(prompt)
+
+# ============================================
+# FUNCIÓN PRINCIPAL CON CICLO DE CALIDAD
+# ============================================
+
+def generar_propuesta_con_control_calidad(texto_convocatoria, instrucciones, documentos_previos, max_iteraciones=5):
+    """Genera propuesta con ciclos de corrección hasta cumplir 100%"""
+    
+    historial = []
+    
+    # Paso 1: Extraer requisitos
+    st.write("📋 **Paso 1/5:** Extrayendo requisitos de la convocatoria...")
+    requisitos_json = extraer_requisitos_critico(texto_convocatoria)
+    historial.append({"fase": "extraccion_requisitos", "contenido": requisitos_json})
+    
+    # Intentar parsear JSON
+    try:
+        requisitos_dict = json.loads(requisitos_json)
+    except:
+        requisitos_dict = {"requisitos": [{"id": 1, "texto_original": requisitos_json[:500]}]}
+    
+    # Paso 2: Generar propuesta inicial
+    st.write("✍️ **Paso 2/5:** Generando propuesta inicial...")
+    propuesta_actual = generar_propuesta_inicial(requisitos_json, instrucciones, documentos_previos)
+    historial.append({"fase": "propuesta_inicial", "contenido": propuesta_actual[:1000]})
+    
+    # Paso 3: Ciclo de verificación y corrección
+    st.write("🔄 **Paso 3/5:** Iniciando ciclo de control de calidad...")
+    
+    for iteracion in range(1, max_iteraciones + 1):
+        st.write(f"  - Iteración {iteracion}: Verificando cumplimiento...")
+        
+        # Verificar propuesta actual
+        verificacion = verificar_cumplimiento_estricto(propuesta_actual, requisitos_json)
+        historial.append({"fase": f"verificacion_iteracion_{iteracion}", "contenido": verificacion})
+        
+        # Verificar si está aprobada
+        if "APROBADO" in verificacion and "100/100" in verificacion:
+            st.success(f"✅ **PROPUESTA APROBADA** después de {iteracion} iteraciones!")
+            return propuesta_actual, verificacion, historial, True
+        
+        # Extraer correcciones obligatorias
+        st.write(f"  - Iteración {iteracion}: Propuesta RECHAZADA. Corrigiendo...")
+        
+        # Corregir propuesta
+        propuesta_actual = corregir_propuesta(propuesta_actual, verificacion, documentos_previos)
+        historial.append({"fase": f"correccion_iteracion_{iteracion}", "contenido": propuesta_actual[:1000]})
+    
+    # Si llegamos aquí, no se aprobó en el máximo de iteraciones
+    st.warning(f"⚠️ No se alcanzó el 100% de cumplimiento después de {max_iteraciones} iteraciones.")
+    st.info("Se entregará la última versión con las correcciones pendientes.")
+    return propuesta_actual, verificacion, historial, False
 
 # ============================================
 # INTERFAZ DE STREAMLIT
 # ============================================
 
-st.set_page_config(page_title="CrewAI - Sistema Postdoctoral", page_icon="🎓", layout="wide")
+st.set_page_config(page_title="CrewAI - Control de Calidad Postdoctoral", page_icon="🎓", layout="wide")
 
-st.title("🎓 CrewAI - Sistema de Análisis y Generación Postdoctoral")
+st.title("🎓 CrewAI - Sistema de Control de Calidad Postdoctoral")
 st.markdown("---")
-
-# Inicializar estado de sesión
-if "propuesta_actual" not in st.session_state:
-    st.session_state.propuesta_actual = None
-if "verificacion_actual" not in st.session_state:
-    st.session_state.verificacion_actual = None
-if "requisitos_actuales" not in st.session_state:
-    st.session_state.requisitos_actuales = None
-if "analisis_actual" not in st.session_state:
-    st.session_state.analisis_actual = None
-if "busqueda_actual" not in st.session_state:
-    st.session_state.busqueda_actual = None
 
 with st.sidebar:
     st.header("📋 Menú")
-    opcion = st.radio("Ir a:", ["📝 Nuevo Análisis Postdoctoral", "🔄 Mejorar Propuesta", "📚 Historial", "⚙️ Estado APIs"])
+    opcion = st.radio("Ir a:", ["📝 Nueva Propuesta", "📚 Historial", "⚙️ Estado APIs"])
     
     st.markdown("---")
-    st.markdown("### 🎓 Agentes Postdoctorales")
+    st.markdown("### 🎓 Flujo de Control de Calidad")
     st.markdown("""
-    | Agente | IA | Función |
-    |--------|-----|---------|
-    | Extractor | DeepSeek | Extrae requisitos línea por línea |
-    | Buscador | Groq | Búsqueda en fuentes oficiales |
-    | Analizador | DeepSeek | Análisis crítico profundo |
-    | Generador | Groq | Propuesta completa |
-    | Verificador | DeepSeek | Verificación de cumplimiento |
-    | Mejorador | Groq | Sugerencias iterativas |
+    1. 📋 **Extraer requisitos** (crítico)
+    2. ✍️ **Generar propuesta inicial**
+    3. 🔍 **Verificar cumplimiento** (100% obligatorio)
+    4. 🔧 **Si NO cumple → Corregir**
+    5. 🔁 **Iterar hasta aprobar**
+    6. ✅ **Entregar propuesta final**
     """)
+    
+    st.info("⚠️ **Regla estricta:** La propuesta solo se entrega si cumple el 100% de los requisitos.")
 
 if opcion == "⚙️ Estado APIs":
     st.header("🔌 Estado de las APIs")
     col1, col2 = st.columns(2)
     with col1:
-        if DEEPSEEK_API_KEY:
-            st.success("✅ DeepSeek API: Conectado")
-        else:
-            st.error("❌ DeepSeek API: No configurada")
+        st.success("✅ DeepSeek") if DEEPSEEK_API_KEY else st.error("❌ DeepSeek")
     with col2:
-        if GROQ_API_KEY:
-            st.success("✅ Groq API: Conectado")
-        else:
-            st.error("❌ Groq API: No configurada")
+        st.success("✅ Groq") if GROQ_API_KEY else st.error("❌ Groq")
 
-elif opcion == "📝 Nuevo Análisis Postdoctoral":
-    st.header("🎓 Análisis Postdoctoral de Documentos")
+elif opcion == "📝 Nueva Propuesta":
+    st.header("🎓 Generación de Propuesta con Control de Calidad")
     
     with st.form("form_postdoctoral"):
-        titulo = st.text_input("Título del proyecto / convocatoria")
+        titulo = st.text_input("Título de la convocatoria / proyecto")
         
-        col1, col2 = st.columns(2)
-        with col1:
-            formato_salida = st.selectbox("Formato de salida", ["Markdown (.md)", "Word (.docx)", "PDF (.pdf)"])
-        with col2:
-            estilo_citas = st.selectbox("Estilo de citación", ["APA 7ª edición", "Vancouver", "MLA", "Chicago"])
-        
-        archivos_base = st.file_uploader(
-            "📄 Documentos base (convocatoria, bases, términos de referencia)",
-            type=["txt", "md", "pdf", "docx", "xlsx"],
-            accept_multiple_files=True,
-            help="Sube los documentos que contienen los requisitos del proyecto"
+        archivos_convocatoria = st.file_uploader(
+            "📄 Sube las bases, términos de referencia, requisitos",
+            type=["txt", "md", "pdf", "docx"],
+            accept_multiple_files=True
         )
         
-        archivos_adicionales = st.file_uploader(
-            "📎 Documentos adicionales (CVs, proyectos previos, artículos, datos)",
-            type=["txt", "md", "pdf", "docx", "xlsx", "csv"],
-            accept_multiple_files=True,
-            help="Opcional: sube perfiles de personal, proyectos anteriores, artículos académicos"
+        archivos_previos = st.file_uploader(
+            "📎 Sube documentos adicionales (CVs, artículos, proyectos previos)",
+            type=["txt", "md", "pdf", "docx"],
+            accept_multiple_files=True
         )
         
         instrucciones = st.text_area(
             "📝 Instrucciones específicas",
-            height=150,
-            placeholder="""Ejemplo:
-            - El proyecto debe enfocarse en energías renovables
-            - Se requiere un equipo mínimo de 5 investigadores
-            - El presupuesto no debe superar los $500,000
-            - Incluir análisis estadístico de datos históricos
-            - La metodología debe incluir trabajo de campo
-            - Priorizar fuentes de los últimos 3 años
-            - Incluir plan de transferencia de resultados
-            """
+            height=100,
+            placeholder="Ej: Duración 36 meses, presupuesto máximo $200,000, equipo mínimo 3 doctores..."
         )
         
-        submitted = st.form_submit_button("🚀 INICIAR ANÁLISIS POSTDOCTORAL", type="primary")
+        max_iteraciones = st.slider(
+            "🔄 Máximo de iteraciones de corrección",
+            min_value=1,
+            max_value=10,
+            value=5,
+            help="Número máximo de ciclos de corrección antes de entregar la última versión"
+        )
+        
+        submitted = st.form_submit_button("🚀 INICIAR PROCESO DE CALIDAD", type="primary")
         
         if submitted:
             if not titulo:
-                st.error("❌ Ingresa un título para el proyecto")
-            elif not archivos_base:
-                st.error("❌ Sube al menos un documento base")
+                st.error("❌ Ingresa un título")
+            elif not archivos_convocatoria:
+                st.error("❌ Sube al menos un documento de la convocatoria")
             else:
-                # Crear barras de progreso
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                
-                # Extraer texto de todos los archivos
-                texto_completo = ""
-                for a in archivos_base:
+                # Extraer texto
+                texto_convocatoria = ""
+                for a in archivos_convocatoria:
                     try:
-                        texto_completo += f"\n\n--- {a.name} ---\n{a.getvalue().decode('utf-8', errors='ignore')}"
+                        texto_convocatoria += f"\n\n--- {a.name} ---\n{a.getvalue().decode('utf-8', errors='ignore')}"
                     except:
-                        texto_completo += f"\n\n--- {a.name} ---\n[Contenido binario - requiere procesamiento especial]"
+                        texto_convocatoria += f"\n\n--- {a.name} ---\n[Contenido binario]"
                 
-                for a in archivos_adicionales:
+                texto_previos = ""
+                for a in archivos_previos:
                     try:
-                        texto_completo += f"\n\n--- {a.name} ---\n{a.getvalue().decode('utf-8', errors='ignore')}"
+                        texto_previos += f"\n\n--- {a.name} ---\n{a.getvalue().decode('utf-8', errors='ignore')}"
                     except:
-                        texto_completo += f"\n\n--- {a.name} ---\n[Contenido binario]"
+                        texto_previos += f"\n\n--- {a.name} ---\n[Contenido binario]"
                 
-                # FASE 1: Extraer requisitos
-                status_text.info("🎓 FASE 1/6: Extrayendo requisitos línea por línea (DeepSeek)...")
-                st.session_state.requisitos_actuales = extraer_requisitos_postdoctorado(texto_completo)
-                progress_bar.progress(1/6)
-                
-                # FASE 2: Búsqueda en internet
-                status_text.info("🌐 FASE 2/6: Buscando información en fuentes oficiales (Groq)...")
-                st.session_state.busqueda_actual = buscar_informacion_postdoctoral(titulo, st.session_state.requisitos_actuales)
-                progress_bar.progress(2/6)
-                
-                # FASE 3: Análisis crítico
-                status_text.info("🔬 FASE 3/6: Realizando análisis crítico postdoctoral (DeepSeek)...")
-                st.session_state.analisis_actual = analisis_critico_postdoctoral(texto_completo, st.session_state.requisitos_actuales)
-                progress_bar.progress(3/6)
-                
-                # FASE 4: Generar propuesta
-                status_text.info("✍️ FASE 4/6: Generando propuesta completa (Groq)...")
-                st.session_state.propuesta_actual = generar_propuesta_postdoctoral(
-                    st.session_state.requisitos_actuales,
-                    st.session_state.analisis_actual,
-                    st.session_state.busqueda_actual,
-                    instrucciones,
-                    formato_salida
-                )
-                progress_bar.progress(4/6)
-                
-                # FASE 5: Verificar cumplimiento
-                status_text.info("✅ FASE 5/6: Verificando cumplimiento de requisitos (DeepSeek)...")
-                st.session_state.verificacion_actual = verificar_cumplimiento_postdoctoral(
-                    st.session_state.propuesta_actual,
-                    st.session_state.requisitos_actuales
-                )
-                progress_bar.progress(5/6)
-                
-                # FASE 6: Guardar
-                status_text.info("💾 FASE 6/6: Guardando análisis en base de datos...")
-                guardar_analisis(
-                    titulo, 
-                    instrucciones, 
-                    formato_salida, 
-                    estilo_citas, 
-                    st.session_state.propuesta_actual, 
-                    [a.name for a in archivos_base]
-                )
-                progress_bar.progress(6/6)
-                
-                status_text.success("✅ ¡ANÁLISIS POSTDOCTORAL COMPLETADO!")
-                
-                # Mostrar resultados
-                st.markdown("---")
-                st.header("📊 RESULTADOS DEL ANÁLISIS")
-                
-                tab1, tab2, tab3, tab4, tab5 = st.tabs([
-                    "📄 PROPUESTA FINAL", 
-                    "📋 REQUISITOS EXTRAÍDOS", 
-                    "🔬 ANÁLISIS CRÍTICO",
-                    "🌐 BÚSQUEDA INTERNET",
-                    "✅ VERIFICACIÓN"
-                ])
-                
-                with tab1:
-                    st.markdown(st.session_state.propuesta_actual)
-                    st.download_button(
-                        "📥 DESCARGAR PROPUESTA",
-                        st.session_state.propuesta_actual,
-                        file_name=f"propuesta_{titulo.replace(' ', '_')}.md",
-                        mime="text/markdown"
-                    )
-                
-                with tab2:
-                    st.json(st.session_state.requisitos_actuales)
-                
-                with tab3:
-                    st.markdown(st.session_state.analisis_actual)
-                
-                with tab4:
-                    st.markdown(st.session_state.busqueda_actual)
-                
-                with tab5:
-                    st.markdown(st.session_state.verificacion_actual)
-
-elif opcion == "🔄 Mejorar Propuesta":
-    st.header("🔄 Mejora Iterativa de Propuesta")
-    
-    if not st.session_state.propuesta_actual:
-        st.warning("⚠️ No hay una propuesta activa. Crea un nuevo análisis postdoctoral primero.")
-    else:
-        st.subheader("📄 Propuesta Actual (resumen)")
-        st.markdown(st.session_state.propuesta_actual[:1500] + "...")
-        
-        st.markdown("---")
-        st.subheader("✅ Verificación Actual")
-        st.markdown(st.session_state.verificacion_actual[:1000] + "...")
-        
-        st.markdown("---")
-        st.subheader("📎 Documentos adicionales para mejorar")
-        
-        nuevos_archivos = st.file_uploader(
-            "Sube documentos adicionales (CVs, artículos, datos, etc.)",
-            type=["txt", "md", "pdf", "docx", "xlsx", "csv"],
-            accept_multiple_files=True
-        )
-        
-        comentarios = st.text_area(
-            "💬 Indica qué cambios específicos quieres hacer",
-            height=100,
-            placeholder="Ejemplo: Añadir más detalle en la metodología, incluir análisis estadístico, ajustar el presupuesto, mejorar las referencias..."
-        )
-        
-        if st.button("🔄 MEJORAR PROPUESTA", type="primary"):
-            if nuevos_archivos or comentarios:
-                with st.spinner("Procesando mejoras..."):
-                    # Extraer texto de nuevos archivos
-                    nuevo_texto = ""
-                    for a in nuevos_archivos:
-                        try:
-                            nuevo_texto += f"\n\n--- {a.name} ---\n{a.getvalue().decode('utf-8', errors='ignore')}"
-                        except:
-                            nuevo_texto += f"\n\n--- {a.name} ---\n[Contenido binario]"
-                    
-                    # Generar mejoras
-                    mejoras = sugerir_mejoras_postdoctorales(
-                        st.session_state.propuesta_actual,
-                        st.session_state.verificacion_actual,
-                        f"{comentarios}\n\nNuevos documentos: {nuevo_texto[:2000]}"
+                # Ejecutar proceso con control de calidad
+                with st.spinner("Procesando..."):
+                    propuesta_final, verificacion_final, historial, aprobada = generar_propuesta_con_control_calidad(
+                        texto_convocatoria,
+                        instrucciones,
+                        texto_previos,
+                        max_iteraciones
                     )
                     
-                    # Generar nueva propuesta mejorada
-                    prompt_mejora = f"""
-                    Mejora la siguiente propuesta postdoctoral basándote en:
-                    
-                    === SUGERENCIAS DE MEJORA ===
-                    {mejoras}
-                    
-                    === PROPUESTA ACTUAL ===
-                    {st.session_state.propuesta_actual[:5000]}
-                    
-                    Genera la VERSIÓN MEJORADA Y COMPLETA de la propuesta.
-                    """
-                    
-                    st.session_state.propuesta_actual = llamar_groq(prompt_mejora)
-                    
-                    # Re-verificar
-                    st.session_state.verificacion_actual = verificar_cumplimiento_postdoctoral(
-                        st.session_state.propuesta_actual,
-                        st.session_state.requisitos_actuales
+                    # Guardar en base de datos
+                    guardar_analisis(
+                        titulo,
+                        instrucciones,
+                        "Markdown",
+                        "APA",
+                        propuesta_final,
+                        [a.name for a in archivos_convocatoria]
                     )
                     
-                    st.success("✅ ¡PROPUESTA MEJORADA!")
+                    # Mostrar resultados
+                    st.markdown("---")
+                    
+                    if aprobada:
+                        st.balloons()
+                        st.success("🎉 **¡PROPUESTA APROBADA!** Cumple el 100% de los requisitos.")
+                    else:
+                        st.warning("⚠️ **PROPUESTA ENTREGADA CON CORRECCIONES PENDIENTES**")
+                        st.info("Se alcanzó el máximo de iteraciones. Revise las correcciones sugeridas.")
                     
                     st.markdown("---")
-                    st.subheader("📄 NUEVA VERSIÓN")
-                    st.markdown(st.session_state.propuesta_actual)
+                    st.header("📄 PROPUESTA FINAL")
+                    st.markdown(propuesta_final)
                     
                     st.download_button(
-                        "📥 DESCARGAR PROPUESTA MEJORADA",
-                        st.session_state.propuesta_actual,
-                        file_name="propuesta_mejorada.md",
-                        mime="text/markdown"
+                        "📥 DESCARGAR PROPUESTA",
+                        propuesta_final,
+                        file_name=f"{titulo.replace(' ', '_')}.md"
                     )
-            else:
-                st.error("❌ Agrega comentarios o documentos para mejorar la propuesta")
+                    
+                    with st.expander("📋 VERIFICACIÓN FINAL"):
+                        st.markdown(verificacion_final)
+                    
+                    with st.expander("🔄 HISTORIAL DE ITERACIONES"):
+                        for i, item in enumerate(historial):
+                            st.write(f"**{i+1}. {item['fase']}**")
+                            st.text(item['contenido'][:500] + "...")
+                            st.markdown("---")
 
 else:
-    st.header("📚 Historial de Análisis Postdoctorales")
+    st.header("📚 Historial de Propuestas")
     
     lista = obtener_analisis()
     
     if not lista:
-        st.info("No hay análisis previos. Crea uno nuevo en 'Nuevo Análisis Postdoctoral'")
+        st.info("No hay propuestas previas. Genera una nueva propuesta postdoctoral.")
     else:
         for item in lista:
             with st.expander(f"🎓 {item.get('titulo', 'Sin título')} - {item.get('fecha', '')[:10]}"):
                 st.write(f"**Formato:** {item.get('formato_salida', 'N/A')}")
-                st.write(f"**Estilo citas:** {item.get('estilo_citas', 'N/A')}")
-                st.write(f"**Archivos:** {item.get('archivos', 'N/A')}")
-                with st.expander("Ver propuesta completa"):
-                    st.markdown(item.get('resultado', 'No disponible')[:3000])
+                with st.expander("Ver propuesta"):
+                    st.markdown(item.get('resultado', 'No disponible')[:2000])
 
 st.markdown("---")
-st.caption("🎓 CrewAI Postdoctoral | DeepSeek + Groq | 6 Agentes Especializados | Análisis crítico | Búsqueda en fuentes oficiales | Generación de propuestas | Verificación de cumplimiento")
+st.caption("🎓 CrewAI - Control de Calidad Postdoctoral | Los agentes iteran hasta cumplir el 100% de los requisitos")
