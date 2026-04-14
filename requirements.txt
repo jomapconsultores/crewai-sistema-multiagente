@@ -1,6 +1,6 @@
 streamlit
-google-generativeai
 openai
 python-dotenv
-pillow
 supabase
+python-docx
+reportlab
