@@ -1,12 +1,10 @@
 import streamlit as st
 from datetime import datetime
 import os
-import google.generativeai as genai
 from openai import OpenAI
 from dotenv import load_dotenv
 from PIL import Image
 import io
-import base64
 from database import guardar_analisis, obtener_analisis
 
 load_dotenv()
@@ -17,7 +15,6 @@ load_dotenv()
 
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
 # DeepSeek
 if DEEPSEEK_API_KEY:
@@ -31,36 +28,15 @@ if GROQ_API_KEY:
 else:
     groq_client = None
 
-# Gemini
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
-    gemini_model = genai.GenerativeModel('gemini-1.5-flash')
-else:
-    gemini_model = None
-
 # ============================================
-# FUNCIONES DE IMÁGENES
+# FUNCIONES DE IMÁGENES (con Groq)
 # ============================================
 
 def extraer_texto_imagen(imagen_bytes):
-    if not gemini_model:
-        return "⚠️ Gemini no configurado"
-    try:
-        image = Image.open(io.BytesIO(imagen_bytes))
-        response = gemini_model.generate_content(["Extrae todo el texto de esta imagen, describe gráficos y diagramas en detalle.", image])
-        return response.text
-    except Exception as e:
-        return f"Error: {str(e)}"
+    return "⚠️ El análisis de imágenes requiere Gemini. Por ahora, describe la imagen manualmente."
 
 def analizar_diagrama(imagen_bytes):
-    if not gemini_model:
-        return "⚠️ Gemini no configurado"
-    try:
-        image = Image.open(io.BytesIO(imagen_bytes))
-        response = gemini_model.generate_content(["Analiza este diagrama: qué tipo es, qué datos muestra, qué conclusión principal tiene.", image])
-        return response.text
-    except Exception as e:
-        return f"Error: {str(e)}"
+    return "⚠️ El análisis de diagramas requiere Gemini. Por ahora, describe el diagrama manualmente."
 
 # ============================================
 # FUNCIONES DE LOS AGENTES
@@ -92,50 +68,39 @@ def llamar_groq(prompt):
     except Exception as e:
         return f"❌ Error Groq: {str(e)}"
 
-def llamar_gemini(prompt):
-    if not gemini_model:
-        return "⚠️ Gemini no configurado. Agrega GEMINI_API_KEY en .env"
-    try:
-        response = gemini_model.generate_content(prompt)
-        return response.text
-    except Exception as e:
-        return f"❌ Error Gemini: {str(e)}"
-
 # ============================================
 # AGENTES ESPECIALIZADOS
 # ============================================
 
-def agente_contenido(texto, analisis_imagenes, instrucciones):
+def agente_contenido(texto, instrucciones):
     prompt = f"""
     Eres un Analista de Contenido Científico.
     Instrucciones: {instrucciones}
-    Texto: {texto[:5000]}
-    Imágenes: {analisis_imagenes[:2000]}
+    Texto: {texto[:8000]}
     Analiza el contenido con rigor científico. Da calificación y recomendaciones.
     """
     return llamar_deepseek(prompt)
 
-def agente_formato(texto, estilo_citas, imagenes_info):
+def agente_formato(texto, estilo_citas):
     prompt = f"""
     Eres un Revisor de Formato Académico.
-    Texto: {texto[:3000]}
-    Imágenes: {imagenes_info[:1500]}
+    Texto: {texto[:5000]}
     Estilo citas: {estilo_citas}
     Verifica formato, estructura y estilo.
     """
-    return llamar_gemini(prompt)
+    return llamar_groq(prompt)
 
 def agente_citas(texto, estilo_citas):
     prompt = f"""
     Verifica TODAS las citas en el documento.
-    Texto: {texto[:6000]}
+    Texto: {texto[:8000]}
     Estilo: {estilo_citas}
     Da total de citas, errores y veredicto.
     """
     return llamar_groq(prompt)
 
 def agente_ortografia(texto):
-    prompt = f"Corrige ortografía y gramática:\n{texto[:6000]}\nDa cantidad de errores y correcciones."
+    prompt = f"Corrige ortografía y gramática:\n{texto[:8000]}\nDa cantidad de errores y correcciones."
     return llamar_groq(prompt)
 
 def agente_evaluador(requisitos, resultados):
@@ -147,17 +112,16 @@ def agente_evaluador(requisitos, resultados):
     """
     return llamar_deepseek(prompt)
 
-def agente_generador(texto, formato, estilo_citas, resultados, imagenes_info):
+def agente_generador(texto, formato, estilo_citas, resultados):
     prompt = f"""
     Genera documento final profesional.
-    Contenido original: {texto[:4000]}
-    Análisis imágenes: {imagenes_info[:1500]}
+    Contenido original: {texto[:6000]}
     Resultados agentes: {resultados}
     Formato: {formato}
     Estilo citas: {estilo_citas}
     Incluye portada, resumen, análisis, tabla de verificación, conclusiones, bibliografía.
     """
-    return llamar_gemini(prompt)
+    return llamar_groq(prompt)
 
 # ============================================
 # INTERFAZ DE STREAMLIT
@@ -177,26 +141,23 @@ with st.sidebar:
     | Agente | IA |
     |--------|-----|
     | Contenido | DeepSeek |
-    | Formato | Gemini |
+    | Formato | Groq |
     | Citas | Groq |
     | Ortografía | Groq |
     | Evaluador | DeepSeek |
-    | Generador | Gemini |
-    | Imágenes | Gemini |
+    | Generador | Groq |
     """)
 
 if opcion == "⚙️ Estado APIs":
     st.header("🔌 Estado de las APIs")
-    col1, col2, col3 = st.columns(3)
+    col1, col2 = st.columns(2)
     with col1:
         st.success("✅ DeepSeek") if DEEPSEEK_API_KEY else st.error("❌ DeepSeek")
     with col2:
         st.success("✅ Groq") if GROQ_API_KEY else st.error("❌ Groq")
-    with col3:
-        st.success("✅ Gemini") if GEMINI_API_KEY else st.error("❌ Gemini")
 
 elif opcion == "📝 Nuevo Análisis":
-    st.header("📝 Nuevo Análisis con 7 Agentes")
+    st.header("📝 Nuevo Análisis con Agentes")
     
     with st.form("form_analisis"):
         col1, col2 = st.columns(2)
@@ -205,11 +166,10 @@ elif opcion == "📝 Nuevo Análisis":
             formato = st.selectbox("Formato salida", ["Word", "PDF", "Markdown"])
         with col2:
             estilo_citas = st.selectbox("Estilo citación", ["APA", "Vancouver", "MLA", "Chicago"])
-            nivel = st.select_slider("Nivel rigor", ["Básico", "Estándar", "Alto", "Máximo"])
         
         archivos = st.file_uploader(
-            "Sube documentos (Word, Excel, PDF, TXT) e imágenes (PNG, JPG, GIF)",
-            type=["txt", "md", "pdf", "docx", "xlsx", "png", "jpg", "jpeg", "gif"],
+            "Sube documentos (Word, Excel, PDF, TXT)",
+            type=["txt", "md", "pdf", "docx", "xlsx"],
             accept_multiple_files=True
         )
         
@@ -224,67 +184,43 @@ elif opcion == "📝 Nuevo Análisis":
                 progress = st.progress(0)
                 status = st.empty()
                 
-                # Separar imágenes y documentos
-                docs = []
-                imagenes = []
-                for a in archivos:
-                    if a.type.startswith('image'):
-                        imagenes.append(a)
-                    else:
-                        docs.append(a)
-                
                 # Extraer texto de documentos
                 texto_completo = ""
-                for doc in docs:
+                for doc in archivos:
                     try:
                         texto_completo += f"\n\n--- {doc.name} ---\n{doc.getvalue().decode('utf-8', errors='ignore')}"
                     except:
                         texto_completo += f"\n\n--- {doc.name} ---\n[Binario]"
                 
-                progress.progress(1/7)
-                
-                # Analizar imágenes
-                status.info("📷 Agente Imágenes (Gemini)...")
-                imagenes_procesadas = []
-                for img in imagenes:
-                    img_bytes = img.getvalue()
-                    analisis = {
-                        "nombre": img.name,
-                        "texto": extraer_texto_imagen(img_bytes)[:500],
-                        "diagrama": analizar_diagrama(img_bytes)[:500]
-                    }
-                    imagenes_procesadas.append(analisis)
-                
-                imagenes_texto = "\n".join([f"**{i['nombre']}**: {i['texto']}" for i in imagenes_procesadas])
-                progress.progress(2/7)
+                progress.progress(1/6)
                 
                 resultados = {}
                 
                 status.info("🤖 Agente Contenido (DeepSeek)...")
-                resultados["contenido"] = agente_contenido(texto_completo, imagenes_texto, instrucciones)
-                progress.progress(3/7)
+                resultados["contenido"] = agente_contenido(texto_completo, instrucciones)
+                progress.progress(2/6)
                 
-                status.info("📐 Agente Formato (Gemini)...")
-                resultados["formato"] = agente_formato(texto_completo, estilo_citas, imagenes_texto)
-                progress.progress(4/7)
+                status.info("📐 Agente Formato (Groq)...")
+                resultados["formato"] = agente_formato(texto_completo, estilo_citas)
+                progress.progress(3/6)
                 
                 status.info("📚 Agente Citas (Groq)...")
                 resultados["citas"] = agente_citas(texto_completo, estilo_citas)
-                progress.progress(5/7)
+                progress.progress(4/6)
                 
                 status.info("✍️ Agente Ortografía (Groq)...")
                 resultados["ortografia"] = agente_ortografia(texto_completo)
-                progress.progress(6/7)
+                progress.progress(5/6)
                 
                 status.info("✅ Agente Evaluador (DeepSeek)...")
                 resultados["evaluacion"] = agente_evaluador(instrucciones, str(resultados)[:2000])
-                progress.progress(6.5/7)
+                progress.progress(5.5/6)
                 
-                status.info("📄 Agente Generador (Gemini)...")
-                documento_final = agente_generador(texto_completo, formato, estilo_citas, str(resultados)[:2000], imagenes_texto)
-                progress.progress(7/7)
+                status.info("📄 Agente Generador (Groq)...")
+                documento_final = agente_generador(texto_completo, formato, estilo_citas, str(resultados)[:2000])
+                progress.progress(6/6)
                 
-                status.success(f"✅ Análisis completado! {len(docs)} documentos + {len(imagenes)} imágenes")
+                status.success(f"✅ Análisis completado! {len(archivos)} archivo(s)")
                 
                 # Guardar en Supabase
                 guardar_analisis(
@@ -300,7 +236,7 @@ elif opcion == "📝 Nuevo Análisis":
                 st.markdown("---")
                 st.header("📊 Resultados")
                 
-                tabs = st.tabs(["📄 Documento Final", "🔍 Agentes", "🖼️ Imágenes", "✅ Verificación"])
+                tabs = st.tabs(["📄 Documento Final", "🔍 Agentes", "✅ Verificación"])
                 
                 with tabs[0]:
                     st.markdown(documento_final)
@@ -312,10 +248,6 @@ elif opcion == "📝 Nuevo Análisis":
                             st.markdown(resultado)
                 
                 with tabs[2]:
-                    for img in imagenes:
-                        st.image(img, caption=img.name, width=200)
-                
-                with tabs[3]:
                     st.markdown(resultados.get("evaluacion", "No disponible"))
 
 elif opcion == "📚 Historial":
@@ -336,4 +268,4 @@ elif opcion == "📚 Historial":
                     st.markdown(item.get('resultado', 'No disponible')[:2000])
 
 st.markdown("---")
-st.caption("🤖 CrewAI Multiagente | DeepSeek | Gemini | Groq | 7 Agentes Especializados | Con Supabase")
+st.caption("🤖 CrewAI Multiagente | DeepSeek | Groq | 6 Agentes Especializados")
