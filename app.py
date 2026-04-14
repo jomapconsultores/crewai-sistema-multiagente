@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from PIL import Image
 import io
 import base64
+from database import guardar_analisis, obtener_analisis
 
 load_dotenv()
 
@@ -21,10 +22,14 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 # DeepSeek
 if DEEPSEEK_API_KEY:
     deepseek_client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url="https://api.deepseek.com/v1")
+else:
+    deepseek_client = None
 
 # Groq
 if GROQ_API_KEY:
     groq_client = OpenAI(api_key=GROQ_API_KEY, base_url="https://api.groq.com/openai/v1")
+else:
+    groq_client = None
 
 # Gemini
 if GEMINI_API_KEY:
@@ -62,7 +67,7 @@ def analizar_diagrama(imagen_bytes):
 # ============================================
 
 def llamar_deepseek(prompt):
-    if not DEEPSEEK_API_KEY:
+    if not deepseek_client:
         return "⚠️ DeepSeek no configurado. Agrega DEEPSEEK_API_KEY en .env"
     try:
         response = deepseek_client.chat.completions.create(
@@ -75,7 +80,7 @@ def llamar_deepseek(prompt):
         return f"❌ Error DeepSeek: {str(e)}"
 
 def llamar_groq(prompt):
-    if not GROQ_API_KEY:
+    if not groq_client:
         return "⚠️ Groq no configurado. Agrega GROQ_API_KEY en .env"
     try:
         response = groq_client.chat.completions.create(
@@ -281,6 +286,17 @@ elif opcion == "📝 Nuevo Análisis":
                 
                 status.success(f"✅ Análisis completado! {len(docs)} documentos + {len(imagenes)} imágenes")
                 
+                # Guardar en Supabase
+                guardar_analisis(
+                    titulo=titulo,
+                    instrucciones=instrucciones,
+                    formato=formato,
+                    estilo=estilo_citas,
+                    resultado=documento_final,
+                    archivos=[a.name for a in archivos]
+                )
+                st.success("💾 Análisis guardado en la base de datos")
+                
                 st.markdown("---")
                 st.header("📊 Resultados")
                 
@@ -302,9 +318,22 @@ elif opcion == "📝 Nuevo Análisis":
                 with tabs[3]:
                     st.markdown(resultados.get("evaluacion", "No disponible"))
 
-else:
-    st.header("📚 Historial")
-    st.info("Los análisis se guardan aquí. Crea uno nuevo para comenzar.")
+elif opcion == "📚 Historial":
+    st.header("📚 Historial de Análisis")
+    
+    analisis_lista = obtener_analisis()
+    
+    if not analisis_lista:
+        st.info("No hay análisis previos. Crea uno nuevo en 'Nuevo Análisis'")
+    else:
+        for item in analisis_lista:
+            with st.expander(f"📌 {item.get('titulo', 'Sin título')} - {item.get('fecha', '')[:10]}"):
+                st.write(f"**Formato:** {item.get('formato_salida', 'N/A')}")
+                st.write(f"**Estilo citas:** {item.get('estilo_citas', 'N/A')}")
+                st.write(f"**Archivos:** {item.get('archivos', 'N/A')}")
+                
+                with st.expander("Ver resultado"):
+                    st.markdown(item.get('resultado', 'No disponible')[:2000])
 
 st.markdown("---")
-st.caption("🤖 CrewAI Multiagente | DeepSeek | Gemini | Groq | 7 Agentes Especializados")
+st.caption("🤖 CrewAI Multiagente | DeepSeek | Gemini | Groq | 7 Agentes Especializados | Con Supabase")
