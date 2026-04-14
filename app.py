@@ -25,9 +25,6 @@ groq_client = OpenAI(api_key=GROQ_API_KEY, base_url="https://api.groq.com/openai
 # ============================================
 
 def buscar_en_internet(consulta):
-    """Busca información en fuentes oficiales usando SerpAPI o similar"""
-    # Nota: Necesitarás una API key de SerpAPI o Google Custom Search
-    # Por ahora, simulamos la búsqueda con Groq
     prompt = f"""
     Busca en fuentes oficiales y acreditadas información sobre:
     {consulta}
@@ -43,7 +40,6 @@ def buscar_en_internet(consulta):
     return llamar_groq(prompt)
 
 def buscar_perfiles_profesionales(requisitos):
-    """Identifica qué perfiles profesionales se necesitan"""
     prompt = f"""
     Analiza estos requisitos de un proyecto y determina:
     
@@ -63,7 +59,6 @@ def buscar_perfiles_profesionales(requisitos):
 # ============================================
 
 def extraer_requisitos_linea_por_linea(texto):
-    """Extrae cada requisito específico del documento"""
     prompt = f"""
     Extrae TODOS los requisitos específicos del siguiente documento.
     Analiza línea por línea, párrafo por párrafo.
@@ -88,7 +83,6 @@ def extraer_requisitos_linea_por_linea(texto):
         return {"error": respuesta, "texto_original": respuesta}
 
 def analizar_profundidad(texto, requisitos):
-    """Análisis profundo del contenido"""
     prompt = f"""
     Realiza un análisis a nivel POSTDOCTORADO del siguiente contenido.
     
@@ -108,7 +102,6 @@ def analizar_profundidad(texto, requisitos):
     return llamar_deepseek(prompt)
 
 def generar_propuesta(analisis, requisitos, busqueda_internet, formato):
-    """Genera la propuesta completa con el formato solicitado"""
     prompt = f"""
     Genera una PROPUESTA COMPLETA Y PROFESIONAL basada en:
     
@@ -141,7 +134,6 @@ def generar_propuesta(analisis, requisitos, busqueda_internet, formato):
     return llamar_groq(prompt)
 
 def verificar_cumplimiento(propuesta, requisitos):
-    """Verifica punto por punto si cumple los requisitos"""
     prompt = f"""
     Verifica si la siguiente propuesta cumple con CADA UNO de los requisitos.
     
@@ -160,7 +152,6 @@ def verificar_cumplimiento(propuesta, requisitos):
     return llamar_deepseek(prompt)
 
 def sugerir_mejoras(propuesta, evaluacion):
-    """Sugiere mejoras iterativas"""
     prompt = f"""
     Basado en la evaluación, sugiere MEJORAS ESPECÍFICAS.
     
@@ -177,85 +168,6 @@ def sugerir_mejoras(propuesta, evaluacion):
     4. ELEMENTOS QUE FALTAN añadir
     """
     return llamar_groq(prompt)
-
-# ============================================
-# FUNCIONES DE FORMATO DE DOCUMENTOS
-# ============================================
-
-def generar_word(contenido):
-    """Genera un archivo Word con formato profesional"""
-    try:
-        from docx import Document
-        from docx.shared import Inches, Pt
-        from docx.enum.text import WD_ALIGN_PARAGRAPH
-        
-        doc = Document()
-        
-        # Configurar márgenes
-        sections = doc.sections
-        for section in sections:
-            section.top_margin = Inches(1)
-            section.bottom_margin = Inches(1)
-            section.left_margin = Inches(1)
-            section.right_margin = Inches(1)
-        
-        # Título principal
-        title = doc.add_heading(level=0)
-        title_run = title.add_run("PROPUESTA TÉCNICA Y ECONÓMICA")
-        title_run.font.size = Pt(24)
-        title_run.font.bold = True
-        title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        
-        # Fecha
-        fecha = doc.add_paragraph()
-        fecha_run = fecha.add_run(f"Fecha: {datetime.now().strftime('%d/%m/%Y')}")
-        fecha_run.font.size = Pt(11)
-        fecha.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-        
-        # Contenido
-        doc.add_paragraph(contenido)
-        
-        # Guardar
-        temp_file = f"propuesta_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx"
-        doc.save(temp_file)
-        return temp_file
-    except:
-        return None
-
-def generar_pdf(contenido):
-    """Genera un archivo PDF con formato profesional"""
-    try:
-        from reportlab.lib.pagesizes import letter
-        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-        from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY
-        from reportlab.lib.units import inch
-        
-        temp_file = f"propuesta_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
-        doc = SimpleDocTemplate(temp_file, pagesize=letter,
-                                topMargin=inch, bottomMargin=inch,
-                                leftMargin=inch, rightMargin=inch)
-        
-        styles = getSampleStyleSheet()
-        styles.add(ParagraphStyle(name='Justify', alignment=TA_JUSTIFY, fontSize=11, leading=14))
-        styles.add(ParagraphStyle(name='CenterTitle', alignment=TA_CENTER, fontSize=24, leading=30, spaceAfter=20))
-        
-        story = []
-        story.append(Paragraph("PROPUESTA TÉCNICA Y ECONÓMICA", styles['CenterTitle']))
-        story.append(Spacer(1, 12))
-        story.append(Paragraph(f"Fecha: {datetime.now().strftime('%d/%m/%Y')}", styles['Normal']))
-        story.append(Spacer(1, 12))
-        
-        # Procesar contenido por párrafos
-        for para in contenido.split('\n'):
-            if para.strip():
-                story.append(Paragraph(para, styles['Justify']))
-                story.append(Spacer(1, 6))
-        
-        doc.build(story)
-        return temp_file
-    except:
-        return None
 
 # ============================================
 # FUNCIONES DE LLAMADAS A API
@@ -296,7 +208,6 @@ st.set_page_config(page_title="CrewAI - Sistema Postdoctorado", page_icon="🎓"
 st.title("🎓 CrewAI - Sistema de Análisis Postdoctorado")
 st.markdown("---")
 
-# Inicializar variables de sesión
 if "propuesta_actual" not in st.session_state:
     st.session_state.propuesta_actual = None
 if "evaluacion_actual" not in st.session_state:
@@ -317,7 +228,7 @@ with st.sidebar:
     | Analizador | DeepSeek | Análisis crítico profundo |
     | Buscador | Groq | Búsqueda en internet |
     | Generador | Groq | Crea propuesta completa |
-    | Verificador | DeepSeek | Verifica cumplimiento |
+    | Verificador | DeepSeek | Verifica cumplimiento punto por punto |
     | Mejorador | Groq | Sugiere cambios iterativos |
     """)
 
@@ -344,28 +255,16 @@ elif opcion == "📝 Nuevo Análisis":
         archivos = st.file_uploader(
             "Sube documentos base (convocatoria, bases, términos de referencia)",
             type=["txt", "md", "pdf", "docx", "xlsx"],
-            accept_multiple_files=True,
-            help="Sube todos los documentos que contienen los requisitos del proyecto"
+            accept_multiple_files=True
         )
         
         archivos_adicionales = st.file_uploader(
             "Sube documentos adicionales (CVs, proyectos previos, artículos)",
             type=["txt", "md", "pdf", "docx", "xlsx"],
-            accept_multiple_files=True,
-            help="Opcional: sube perfiles de personal, proyectos anteriores, artículos académicos"
+            accept_multiple_files=True
         )
         
-        instrucciones = st.text_area(
-            "Instrucciones específicas",
-            height=150,
-            placeholder="""Ejemplo:
-            - El proyecto debe enfocarse en energías renovables
-            - Se requiere un equipo mínimo de 5 investigadores
-            - El presupuesto no debe superar los $500,000
-            - Incluir análisis estadístico de datos históricos
-            - La metodología debe incluir trabajo de campo
-            """
-        )
+        instrucciones = st.text_area("Instrucciones específicas", height=150)
         
         submitted = st.form_submit_button("🚀 Iniciar Análisis Postdoctorado", type="primary")
         
@@ -378,7 +277,6 @@ elif opcion == "📝 Nuevo Análisis":
                 progress = st.progress(0)
                 status = st.empty()
                 
-                # Extraer texto de todos los archivos
                 texto_completo = ""
                 for a in archivos:
                     try:
@@ -394,67 +292,36 @@ elif opcion == "📝 Nuevo Análisis":
                 
                 progress.progress(1/6)
                 
-                # FASE 1: Extraer requisitos línea por línea
                 status.info("📋 FASE 1/6: Extrayendo requisitos línea por línea (DeepSeek)...")
                 st.session_state.requisitos_extraidos = extraer_requisitos_linea_por_linea(texto_completo)
                 progress.progress(2/6)
                 
-                # FASE 2: Análisis profundo
                 status.info("🔍 FASE 2/6: Realizando análisis crítico profundo (DeepSeek)...")
                 analisis_profundo = analizar_profundidad(texto_completo, st.session_state.requisitos_extraidos)
                 progress.progress(3/6)
                 
-                # FASE 3: Búsqueda en internet
                 status.info("🌐 FASE 3/6: Buscando información en fuentes oficiales (Groq)...")
                 busqueda = buscar_en_internet(titulo + " " + instrucciones)
                 progress.progress(4/6)
                 
-                # FASE 4: Generar propuesta
                 status.info("✍️ FASE 4/6: Generando propuesta completa (Groq)...")
-                st.session_state.propuesta_actual = generar_propuesta(
-                    analisis_profundo, 
-                    st.session_state.requisitos_extraidos,
-                    busqueda,
-                    formato_salida
-                )
+                st.session_state.propuesta_actual = generar_propuesta(analisis_profundo, st.session_state.requisitos_extraidos, busqueda, formato_salida)
                 progress.progress(5/6)
                 
-                # FASE 5: Verificar cumplimiento
                 status.info("✅ FASE 5/6: Verificando cumplimiento de requisitos (DeepSeek)...")
-                st.session_state.evaluacion_actual = verificar_cumplimiento(
-                    st.session_state.propuesta_actual,
-                    st.session_state.requisitos_extraidos
-                )
+                st.session_state.evaluacion_actual = verificar_cumplimiento(st.session_state.propuesta_actual, st.session_state.requisitos_extraidos)
                 progress.progress(6/6)
-                
-                # FASE 6: Identificar perfiles faltantes
-                status.info("👥 FASE 6/6: Identificando perfiles profesionales necesarios...")
-                perfiles = buscar_perfiles_profesionales(str(st.session_state.requisitos_extraidos))
                 
                 status.success("✅ Análisis completado!")
                 
-                # Mostrar resultados
                 st.markdown("---")
                 st.header("📊 RESULTADOS DEL ANÁLISIS")
                 
-                tabs = st.tabs(["📄 Propuesta Final", "📋 Requisitos Extraídos", "✅ Evaluación", "👥 Perfiles Necesarios", "🔄 Mejoras Sugeridas"])
+                tabs = st.tabs(["📄 Propuesta Final", "📋 Requisitos Extraídos", "✅ Evaluación", "🔄 Mejoras Sugeridas"])
                 
                 with tabs[0]:
                     st.markdown(st.session_state.propuesta_actual)
-                    
-                    # Botón de descarga según formato
-                    if formato_salida == "Word (.docx)":
-                        doc_file = generar_word(st.session_state.propuesta_actual)
-                        if doc_file:
-                            with open(doc_file, "rb") as f:
-                                st.download_button("📥 Descargar como Word", f, file_name=doc_file)
-                    elif formato_salida == "PDF (.pdf)":
-                        pdf_file = generar_pdf(st.session_state.propuesta_actual)
-                        if pdf_file:
-                            with open(pdf_file, "rb") as f:
-                                st.download_button("📥 Descargar como PDF", f, file_name=pdf_file)
-                    else:
-                        st.download_button("📥 Descargar como Markdown", st.session_state.propuesta_actual, file_name=f"{titulo}.md")
+                    st.download_button("📥 Descargar", st.session_state.propuesta_actual, file_name=f"{titulo}.md")
                 
                 with tabs[1]:
                     st.json(st.session_state.requisitos_extraidos)
@@ -463,14 +330,9 @@ elif opcion == "📝 Nuevo Análisis":
                     st.markdown(st.session_state.evaluacion_actual)
                 
                 with tabs[3]:
-                    st.markdown(perfiles)
-                    st.info("💡 Si faltan perfiles, adjunta sus CVs en la sección 'Mejorar Propuesta'")
-                
-                with tabs[4]:
                     sugerencias = sugerir_mejoras(st.session_state.propuesta_actual, st.session_state.evaluacion_actual)
                     st.markdown(sugerencias)
                 
-                # Guardar en Supabase
                 guardar_analisis(titulo, instrucciones, formato_salida, estilo_citas, st.session_state.propuesta_actual, [a.name for a in archivos])
 
 elif opcion == "🔄 Mejorar Propuesta":
@@ -487,24 +349,14 @@ elif opcion == "🔄 Mejorar Propuesta":
         st.markdown(st.session_state.evaluacion_actual[:1000] + "...")
         
         st.markdown("---")
-        st.subheader("Nuevos documentos para mejorar la propuesta")
+        st.subheader("Nuevos documentos para mejorar")
         
-        nuevos_archivos = st.file_uploader(
-            "Sube documentos adicionales (CVs, artículos, datos, etc.)",
-            type=["txt", "md", "pdf", "docx", "xlsx", "csv"],
-            accept_multiple_files=True
-        )
-        
-        comentarios = st.text_area(
-            "Indica qué cambios específicos quieres hacer",
-            height=100,
-            placeholder="Ejemplo: Añadir más detalle en la metodología, incluir análisis estadístico, ajustar el presupuesto..."
-        )
+        nuevos_archivos = st.file_uploader("Sube documentos adicionales", type=["txt", "md", "pdf", "docx", "xlsx"], accept_multiple_files=True)
+        comentarios = st.text_area("Indica qué cambios específicos quieres hacer", height=100)
         
         if st.button("🔄 Mejorar Propuesta", type="primary"):
             if nuevos_archivos or comentarios:
                 with st.spinner("Procesando mejoras..."):
-                    # Extraer texto de nuevos archivos
                     nuevo_texto = ""
                     for a in nuevos_archivos:
                         try:
@@ -512,11 +364,10 @@ elif opcion == "🔄 Mejorar Propuesta":
                         except:
                             nuevo_texto += f"\n\n--- {a.name} ---\n[Contenido binario]"
                     
-                    # Generar propuesta mejorada
                     prompt_mejora = f"""
                     Mejora la siguiente propuesta basándote en:
                     
-                    === COMENTARIOS DEL USUARIO ===
+                    === COMENTARIOS ===
                     {comentarios}
                     
                     === NUEVOS DOCUMENTOS ===
@@ -524,31 +375,20 @@ elif opcion == "🔄 Mejorar Propuesta":
                     
                     === PROPUESTA ACTUAL ===
                     {st.session_state.propuesta_actual[:5000]}
-                    
-                    Genera una versión MEJORADA que incorpore todos los cambios.
                     """
                     
                     st.session_state.propuesta_actual = llamar_groq(prompt_mejora)
-                    
-                    # Re-evaluar
-                    st.session_state.evaluacion_actual = verificar_cumplimiento(
-                        st.session_state.propuesta_actual,
-                        st.session_state.requisitos_extraidos
-                    )
+                    st.session_state.evaluacion_actual = verificar_cumplimiento(st.session_state.propuesta_actual, st.session_state.requisitos_extraidos)
                     
                     st.success("✅ Propuesta mejorada!")
-                    st.markdown("## Nueva versión")
                     st.markdown(st.session_state.propuesta_actual)
-                    
-                    st.download_button("📥 Descargar propuesta mejorada", st.session_state.propuesta_actual, file_name="propuesta_mejorada.md")
+                    st.download_button("📥 Descargar", st.session_state.propuesta_actual, file_name="propuesta_mejorada.md")
             else:
-                st.error("❌ Agrega comentarios o documentos para mejorar")
+                st.error("❌ Agrega comentarios o documentos")
 
 else:
     st.header("📚 Historial de Análisis")
-    
     lista = obtener_analisis()
-    
     if not lista:
         st.info("No hay análisis previos")
     else:
