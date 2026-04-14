@@ -14,7 +14,6 @@ load_dotenv()
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 
-# Clientes API
 deepseek_client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url="https://api.deepseek.com/v1") if DEEPSEEK_API_KEY else None
 groq_client = OpenAI(api_key=GROQ_API_KEY, base_url="https://api.groq.com/openai/v1") if GROQ_API_KEY else None
 
@@ -85,6 +84,10 @@ if opcion == "⚙️ Estado APIs":
 elif opcion == "📝 Nuevo Análisis":
     st.header("📝 Nuevo Análisis")
     
+    # Variables para guardar el resultado fuera del form
+    documento_final = None
+    titulo_analisis = None
+    
     with st.form("form_analisis"):
         titulo = st.text_input("Título del análisis")
         formato = st.selectbox("Formato salida", ["Markdown", "Word", "PDF"])
@@ -107,7 +110,6 @@ elif opcion == "📝 Nuevo Análisis":
                 st.error("❌ Sube al menos un archivo")
             else:
                 with st.spinner("Procesando..."):
-                    # Extraer texto
                     texto = ""
                     for a in archivos:
                         try:
@@ -115,27 +117,34 @@ elif opcion == "📝 Nuevo Análisis":
                         except:
                             texto += f"\n\n--- {a.name} ---\n[Contenido binario]"
                     
-                    # Agente 1: Análisis con DeepSeek
                     st.write("🔍 **Agente 1/3 - Analizando contenido (DeepSeek)...**")
                     analisis = llamar_deepseek(f"Analiza este contenido con rigor científico:\n\n{texto[:6000]}\n\nInstrucciones: {instrucciones}")
                     
-                    # Agente 2: Revisión con Groq
                     st.write("📝 **Agente 2/3 - Revisando formato y citas (Groq)...**")
                     revision = llamar_groq(f"Revisa este análisis. Verifica formato y citas según {estilo_citas}:\n\n{analisis[:4000]}")
                     
-                    # Agente 3: Documento final con Groq
                     st.write("📄 **Agente 3/3 - Generando documento final (Groq)...**")
                     documento_final = llamar_groq(f"Genera un informe final profesional con portada, resumen, desarrollo, conclusiones y bibliografía según {estilo_citas}. Basado en:\n\nAnálisis: {analisis[:3000]}\n\nRevisión: {revision[:2000]}")
                     
-                    # Guardar en Supabase
                     guardar_analisis(titulo, instrucciones, formato, estilo_citas, documento_final, [a.name for a in archivos])
                     
                     st.success("✅ Análisis completado!")
+                    
+                    # Guardar para mostrar fuera del form
+                    titulo_analisis = titulo
+                    
                     st.markdown("---")
                     st.markdown("## 📄 Resultado")
                     st.markdown(documento_final)
-                    
-                    st.download_button("📥 Descargar", documento_final, file_name=f"{titulo}.md")
+    
+    # Botón de descarga FUERA del formulario
+    if documento_final:
+        st.download_button(
+            label="📥 Descargar resultado",
+            data=documento_final,
+            file_name=f"{titulo_analisis}.md",
+            mime="text/markdown"
+        )
 
 # Historial
 elif opcion == "📚 Historial":
